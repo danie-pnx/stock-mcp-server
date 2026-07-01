@@ -2,10 +2,17 @@ import os
 import uvicorn
 from fastapi import FastAPI
 from mcp.server.fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 import yfinance as yf
 
-# Initialize the MCP Server
-mcp = FastMCP("AlphaVantage_Finance")
+# Initialize the MCP Server with cloud-ready security settings
+mcp = FastMCP(
+    "AlphaVantage_Finance",
+    transport_security=TransportSecuritySettings(
+        enable_dns_rebinding_protection=False, 
+        allowed_hosts=["*"] # Trust the Railway reverse proxy
+    )
+)
 
 @mcp.tool()
 def get_ticker_news(symbol: str) -> str:
@@ -13,19 +20,13 @@ def get_ticker_news(symbol: str) -> str:
     try:
         ticker = yf.Ticker(symbol)
         news = ticker.news
-        
-        # ADD THIS LINE to see what Yahoo Finance is actually giving us
-        print(f"RAW NEWS DATA: {news}") 
-        
         if not news:
             return f"No recent news found for {symbol}."
         
-        # We will comment this out temporarily until we know the right key
+        # Traverse into the 'content' dictionary to grab the title
         headlines = [f"- {item['content']['title']}" for item in news[:3]]
         
         return f"Recent news for {symbol}:\n" + "\n".join(headlines)
-        
-        # return "Check your Python terminal for the raw data!"
         
     except Exception as e:
         return f"Error fetching data for {symbol}: {str(e)}"
