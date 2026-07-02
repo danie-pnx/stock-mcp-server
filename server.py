@@ -34,6 +34,38 @@ def get_ticker_news(symbol: str) -> str:
 # Initialize the web framework
 app = FastAPI()
 
+# --- CLOUD PROXY BUFFERING FIX (ASGI Middleware) ---
+class DisableProxyBufferingMiddleware:
+    """
+    Intersects downstream communication with Railway's reverse proxy.
+    Tells Nginx/Cloudflare to flush bytes immediately instead of buffering.
+    """
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http" and scope["path"] == "/sse":
+            async def send_wrapper(message):
+                if message["type"] == "http.response.start":
+                    # Convert headers list to a dictionary for easy manipulation
+                    headers = dict(message.get("headers", []))
+                    
+                    # Force response streaming and prevent reverse proxy choking
+                    headers[b"x-accel-buffering"] = b"no"
+                    headers[b"cache-control"] = b"no-cache"
+                    headers[b"connection"] = b"keep-alive"
+                    
+                    # Re-assign modified headers back to the original message payload
+                    message["headers"] = list(headers.items())
+                await send(message)
+            await self.app(scope, receive, send_wrapper)
+        else:
+            await self.app(scope, receive, send)
+
+# Apply the middleware wrapper around the primary FastAPI app
+app.add_middleware(DisableProxyBufferingMiddleware)
+# ---------------------------------------------------
+
 # Mount the MCP server's SSE application to the root of FastAPI
 app.mount("/", mcp.sse_app())
 
