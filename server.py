@@ -5,18 +5,18 @@ from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 import yfinance as yf
 
-# Initialize the MCP Server with cloud-ready security settings
+# 1. Initialize the MCP Server
 mcp = FastMCP(
     "AlphaVantage_Finance",
     transport_security=TransportSecuritySettings(
-        enable_dns_rebinding_protection=False, 
-        allowed_hosts=["*"] # Trust the Railway reverse proxy
+        enable_dns_rebinding_protection=False, # Disble for Reverse Proxy
+        allowed_hosts=["*"] # Railway Reverse Proxy
     )
 )
 
+# 2. Defining the Stock News Tool
 @mcp.tool()
 def get_ticker_news(symbol: str) -> str:
-    """Fetch the latest news headlines and sentiment for a given stock symbol."""
     try:
         ticker = yf.Ticker(symbol)
         news = ticker.news
@@ -31,15 +31,11 @@ def get_ticker_news(symbol: str) -> str:
     except Exception as e:
         return f"Error fetching data for {symbol}: {str(e)}"
 
-# Initialize the web framework
+# 3. Initialize the Web Application Instance
 app = FastAPI()
 
-# --- CLOUD PROXY BUFFERING FIX (ASGI Middleware) ---
+# 4. Injecting Middleware for SSE
 class DisableProxyBufferingMiddleware:
-    """
-    Intersects downstream communication with Railway's reverse proxy.
-    Tells Nginx/Cloudflare to flush bytes immediately instead of buffering.
-    """
     def __init__(self, app):
         self.app = app
 
@@ -64,12 +60,10 @@ class DisableProxyBufferingMiddleware:
 
 # Apply the middleware wrapper around the primary FastAPI app
 app.add_middleware(DisableProxyBufferingMiddleware)
-# ---------------------------------------------------
 
-# Mount the MCP server's SSE application to the root of FastAPI
+# 5. Mount the MCP Application
 app.mount("/", mcp.sse_app())
 
 if __name__ == "__main__":
-    # Railway passes the active port dynamically
     port = int(os.environ.get("PORT", 8000))
     uvicorn.run("server:app", host="0.0.0.0", port=port)
